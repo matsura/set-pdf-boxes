@@ -1,0 +1,12 @@
+{
+    "name": "eldargranulo/mpdf-test",
+    "authors": [
+        {
+            "name": "Eldar Granulo",
+            "email": "eldar32@gmail.com"
+        }
+    ],
+    "require": {
+        "mpdf/mpdf": "^8.0"
+    }
+}
