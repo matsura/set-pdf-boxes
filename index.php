@@ -4,6 +4,11 @@ require_once './vendor/autoload.php';
 
 use Mpdf\Mpdf;
 
+function milimetersToPoints($mm) {
+
+    return round($mm * 2.834646, 2);
+}
+
 $defaultConfig = (new \Mpdf\Config\ConfigVariables())->getDefaults();
 $fontDirs = $defaultConfig['fontDir'];
 $tempDir = $defaultConfig['tempDir'];
@@ -17,8 +22,7 @@ $mpdf = new Mpdf(array_merge($defaultConfig, [
     'margin_right'  => 0,
     'margin_bottom' => 0,
     'mode'          => 'utf-8',
-    'orientation'   => 'P',
-    'format'        => [226, 164],
+    'format'        => [297, 210],
     'img_dpi'       => 300,
     'display_mode'  => 'fullpage',
 ]));
@@ -35,15 +39,29 @@ $lines = array_filter($lines, function ($line) {
            && strpos($line, '/CropBox') === false
            && strpos($line, '/BleedBox') === false;
 });
+// MediaBox should be equal to 'format' in points
+$mediaBoxWidth = milimetersToPoints(297);
+$mediaBoxHeight = milimetersToPoints(210);
+// CropBox must include cropmarks so size = MediaBox
+$cropBoxWidth = milimetersToPoints(297);
+$crobBoxHeight = milimetersToPoints(210);
+// TrimBox is without bleed
+$trimBoxWidth = milimetersToPoints(287);
+$trimBoxHeight = milimetersToPoints(200);
+// BleedBox should be trimBox + bleedValue
+$bleedBoxWidth = milimetersToPoints(297);
+$bleedBoxHeight = milimetersToPoints(210);
+
+$bleedValueInPoint = milimetersToPoints(10);
 
 for ($i = 0; $i < count($lines); $i++) {
 
     if (strpos($lines[$i], '/Parent') !== false) {
         // insert mediabox, cropbox after this one
-        array_splice($lines, $i + 1, 0, '/MediaBox [0 0 500.630 430.882]');
-        array_splice($lines, $i + 2, 0, '/CropBox [0 0 500.630 450.882]');
-        array_splice($lines, $i + 3, 0, '/BleedBox [0 0 500.630 420.882]');
-        array_splice($lines, $i + 4, 0, '/TrimBox [0 0 500.630 410.882]');
+        array_splice($lines, $i + 1, 0, "/MediaBox [0 0 {$mediaBoxWidth} {$mediaBoxHeight}]");
+        array_splice($lines, $i + 2, 0, "/CropBox [0 0 {$cropBoxWidth} {$crobBoxHeight}]");
+        array_splice($lines, $i + 3, 0, "/BleedBox [0 0 {$bleedBoxWidth} {$bleedBoxHeight}]");
+        array_splice($lines, $i + 4, 0, "/TrimBox [{$bleedValueInPoint} {$bleedValueInPoint} {$trimBoxWidth} {$trimBoxHeight}]");
     }
 }
 
