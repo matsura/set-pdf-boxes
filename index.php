@@ -3,11 +3,17 @@
 require_once './vendor/autoload.php';
 
 use Mpdf\Mpdf;
-use setasign\Fpdi\Fpdi;
+use ZendPdf\PdfDocument;
 
 function milimetersToPoints($mm) {
 
     return round($mm * 2.834646, 2);
+}
+
+function writeLine($x1, $y1, $x2, $y2, $h) {
+
+    $k = 72 / 25.4;
+    return sprintf("%.2F %.2F m %.2F %.2F 1 S", $x1 * $k, ($h - $y1) * $k, $x2 * $k, ($h - $y2) * $k);
 }
 
 $defaultConfig = (new \Mpdf\Config\ConfigVariables())->getDefaults();
@@ -46,62 +52,17 @@ $newHeight = $pdfHeightInMM + ($bleedInMM * 2);
 
 $srcPdfFilePath = 'test.pdf';
 
-$pdf = new Fpdi(
-    $pdfWidthInMM > $pdfWidthInMM ? 'L' : 'P', // landscape or portrait?
-    'mm',
-    array(
-        $newWidth,
-        $newHeight
-    ));
-
-if (file_exists($srcPdfFilePath)){
-    $pagecount = $pdf->setSourceFile($srcPdfFilePath);
-} else {
-    error_log("Error! file: ".$srcPdfFilePath." does not exist");
-    return FALSE;
-}
-
 // make the crop line a little shorter so they don't touch each other
 $cropLineLength = $bleedInMM - 1;
 
-for($i = 1; $i <= $pagecount; $i++) {
-    $tpl = $pdf->importPage($i);
-    $pdf->addPage();
-    $size = $pdf->getTemplateSize($tpl);
-
-    $pdf->useTemplate($tpl, $bleedInMM, $bleedInMM, $pageWidth, $pageHeight, true);
-
-    $pdf->SetLineWidth(0.25);
-
-    // top left crop marks
-    $pdf->Line($bleedInMM /* x */, 0 /* y */, $bleedInMM /* x */, $cropLineLength /* y */); // horizontal top left
-    $pdf->Line(0 /* x */, $bleedInMM /* y */, $cropLineLength /* x */, $bleedInMM /* y */); // vertical top left
-
-    // top right crop marks
-    $pdf->Line($newWidth - $bleedInMM /* x */, 0 /* y */, $newWidth - $bleedInMM /* x */, $cropLineLength /* y */); // horizontal top right
-    $pdf->Line($newWidth - $cropLineLength /* x */, $bleedInMM /* y */, $newWidth /* x */, $bleedInMM /* y */); // vertical top right
-
-    // bottom left crop marks
-    $pdf->Line(0 /* x */, $newHeight - $bleedInMM /* y */, $cropLineLength /* x */, $newHeight - $bleedInMM /* y */); // horizontal bottom left
-    $pdf->Line($bleedInMM /* x */, $newHeight - $cropLineLength /* y */, $bleedInMM /* x */, $newHeight /* y */); // vertical bottom left
-
-    // bottom right crop marks
-    $pdf->Line($newWidth - $cropLineLength /* x */, $newHeight - $bleedInMM /* y */, $newWidth /* x */, $newHeight - $bleedInMM /* y */); // horizontal top right
-    $pdf->Line($newWidth - $bleedInMM /* x */, $newHeight - $cropLineLength /* y */, $newWidth - $bleedInMM /* x */, $newHeight /* y */); // vertical top right
-}
-
-$destinationPdfFilePath = 'test_modified.pdf';
-
-$pdf->Output($destinationPdfFilePath,'F');
-
-$stringOutput = $pdf->Output($destinationPdfFilePath, 's');
+$stringOutput = $mpdf->Output($srcPdfFilePath, 's');
 
 $lines = explode("\n", $stringOutput);
 $lines = array_filter($lines, function ($line) {
     return strpos($line, '/MediaBox') === false
-           && strpos($line, '/TrimBox') === false
-           && strpos($line, '/CropBox') === false
-           && strpos($line, '/BleedBox') === false;
+        && strpos($line, '/TrimBox') === false
+        && strpos($line, '/CropBox') === false
+        && strpos($line, '/BleedBox') === false;
 });
 // MediaBox should be equal to 'format' in points
 $mediaBoxWidth = milimetersToPoints(297);
@@ -110,8 +71,8 @@ $mediaBoxHeight = milimetersToPoints(210);
 $cropBoxWidth = milimetersToPoints(297);
 $crobBoxHeight = milimetersToPoints(210);
 // TrimBox is without bleed
-$trimBoxWidth = milimetersToPoints(277);
-$trimBoxHeight = milimetersToPoints(190);
+$trimBoxWidth = milimetersToPoints(287);
+$trimBoxHeight = milimetersToPoints(200);
 // BleedBox should be trimBox + bleedValue
 $bleedBoxWidth = milimetersToPoints(297);
 $bleedBoxHeight = milimetersToPoints(210);
@@ -130,5 +91,35 @@ for ($i = 0; $i < count($lines); $i++) {
 }
 
 $pdf = implode("\n", $lines);
+file_put_contents($srcPdfFilePath, $pdf);
 
-file_put_contents($destinationPdfFilePath, $pdf);
+exec("qpdf --replace-input $srcPdfFilePath");
+
+$zendPdf = PdfDocument::load($srcPdfFilePath);
+
+$bleedInPoints = milimetersToPoints($bleedInMM);
+$cropLineLengthInPoints = milimetersToPoints($cropLineLength);
+$newWidthInPoints = milimetersToPoints($pageWidth);
+$newHeightInPoints = milimetersToPoints($pageHeight);
+
+foreach ($zendPdf->pages as $page) {
+
+    $page->setLineWidth(0.75);
+
+    $page->drawLine($bleedInPoints, 0, $bleedInPoints, $cropLineLengthInPoints); // horizontal top left
+    $page->drawLine(0, $bleedInPoints, $cropLineLengthInPoints, $bleedInPoints); // vertical top left
+
+    // top right crop marks
+    $page->drawLine($newWidthInPoints - $bleedInPoints, 0, $newWidthInPoints - $bleedInPoints, $cropLineLengthInPoints); // horizontal top right
+    $page->drawLine($newWidthInPoints - $cropLineLengthInPoints, $bleedInPoints, $newWidthInPoints, $bleedInPoints); // vertical top right
+
+    // bottom left crop marks
+    $page->drawLine(0, $newHeightInPoints - $bleedInPoints , $cropLineLengthInPoints , $newHeightInPoints - $bleedInPoints ); // horizontal bottom left
+    $page->drawLine($bleedInPoints , $newHeightInPoints - $cropLineLengthInPoints , $bleedInPoints , $newHeightInPoints ); // vertical bottom left
+
+    // bottom right crop marks
+    $page->drawLine($newWidthInPoints - $cropLineLengthInPoints , $newHeightInPoints - $bleedInPoints , $newWidthInPoints , $newHeightInPoints - $bleedInPoints ); // horizontal top right
+    $page->drawLine($newWidthInPoints - $bleedInPoints , $newHeightInPoints - $cropLineLengthInPoints , $newWidthInPoints - $bleedInPoints , $newHeightInPoints ); // vertical top right
+}
+
+$zendPdf->save($srcPdfFilePath);
